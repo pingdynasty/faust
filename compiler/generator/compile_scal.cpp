@@ -60,6 +60,7 @@ extern bool     gDrawSignals;
 extern int      gMaxCopyDelay;
 extern string   gClassName;
 extern string   gMasterDocument;
+extern bool     gMemoryManager;
 
 string makeDrawPath();
 
@@ -521,7 +522,7 @@ string ScalarCompiler::generateCacheCode(Tree sig, const string& exp)
 // like generateCacheCode but we force caching like if sharing was always > 1
 string ScalarCompiler::forceCacheCode(Tree sig, const string& exp)
 {
-	string 		vname, ctype, code;
+	string vname, ctype, code;
 	Occurences* o = fOccMarkup.retrieve(sig);
 
 	// check reentrance
@@ -530,7 +531,8 @@ string ScalarCompiler::forceCacheCode(Tree sig, const string& exp)
     }
 
 	// check for expression occuring in delays
-	if (o->getMaxDelay()>0) {
+    assert(o);
+    if (o->getMaxDelay()>0) {
 
         getTypedNames(getCertifiedSigType(sig), "Vec", ctype, vname);
         return generateDelayVec(sig, generateVariableStore(sig,exp), ctype, vname, o->getMaxDelay());
@@ -826,6 +828,7 @@ string ScalarCompiler::generateStaticTable(Tree sig, Tree tsize, Tree content)
 			 << endl;
         exit(1);
 	}
+    
 	// definition du nom et du type de la table
 	// A REVOIR !!!!!!!!!
 	Type t = getCertifiedSigType(content);//, tEnv);
@@ -838,13 +841,19 @@ string ScalarCompiler::generateStaticTable(Tree sig, Tree tsize, Tree content)
 	}
 
 	// declaration de la table
-	fClass->addDeclCode(subst("static $0 \t$1[$2];", ctype, vname, T(size)));
-    fClass->addStaticFields(subst("$0 \t$1::$2[$3];", ctype, fClass->getClassName(), vname, T(size) ));
-
-	// initialisation du generateur de contenu
-	fClass->addStaticInitCode(subst("$0.init(samplingFreq);", cexp));
-	// remplissage de la table
-	fClass->addStaticInitCode(subst("$0.fill($1,$2);", cexp, T(size), vname));
+    if (gMemoryManager) {
+        fClass->addDeclCode(subst("static $0* \t$1;", ctype, vname));
+        fClass->addStaticFields(subst("$0* \t$1::$2 = 0;", ctype, fClass->getClassName(), vname));
+        fClass->addStaticInitCode(subst("$0 = (manager) ? static_cast<$1*>(manager->allocate(sizeof($1) * $2)) : new $1[$2];", vname, ctype, T(size)));
+     } else {
+        fClass->addDeclCode(subst("static $0 \t$1[$2];", ctype, vname, T(size)));
+        fClass->addStaticFields(subst("$0 \t$1::$2[$3];", ctype, fClass->getClassName(), vname, T(size)));
+    }
+    
+    // initialisation du generateur de contenu
+    fClass->addStaticInitCode(subst("$0.init(samplingFreq);", cexp));
+    // remplissage de la table
+    fClass->addStaticInitCode(subst("$0.fill($1,$2);", cexp, T(size), vname));
 
 	// on retourne le nom de la table
 	return vname;
