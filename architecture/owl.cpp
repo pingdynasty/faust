@@ -41,22 +41,16 @@
 #include <strings.h>
 #include "Patch.h"
 
-
 #ifndef __FaustCommonInfrastructure__
 #define __FaustCommonInfrastructure__
 
-
-#include "faust/audio/dsp.h"
+#include "faust/dsp/dsp.h"
 #include "faust/gui/UI.h"
-
-
 
 struct Meta
 {
     virtual void declare(const char* key, const char* value) = 0;
 };
-
-
 
 /**************************************************************************************
 
@@ -209,6 +203,22 @@ class OwlUI : public UI
     }
 };
 
+  /* Simple heap based memory manager.
+   * Uses overloaded new/delete operators on OWL hardware.
+   */
+struct OwlMemoryManager : public dsp_memory_manager {
+    void* allocate(size_t size)
+    {
+        void* res = new uint8_t[size];
+        return res;
+    }
+    virtual void destroy(void* ptr)
+    {
+      delete (uint8_t*)ptr;
+      // free(ptr);
+    }    
+};
+
 #endif // __FaustCommonInfrastructure__
 
 /**************************BEGIN USER SECTION **************************/
@@ -231,16 +241,24 @@ class OwlUI : public UI
 
 class FaustPatch : public Patch
 {
-    mydsp   fDSP;
+    mydsp*   fDSP;
     OwlUI	fUI;
+    OwlMemoryManager mem;
     
 public:
 
     FaustPatch() : fUI(this)
     {
-        fDSP.init(int(getSampleRate()));		// Init Faust code with the OWL sampling rate
-        fDSP.buildUserInterface(&fUI);			// Maps owl parameters and faust widgets 
+      fDSP = new mydsp();
+      fDSP->classInit(int(getSampleRate()), &mem);
+      fDSP->instanceInit(int(getSampleRate()));
+      fDSP->buildUserInterface(&fUI);			// Maps owl parameters and faust widgets 
     }
+
+    ~FaustPatch(){
+	mem.destroy(fDSP);
+	delete fDSP;
+      }
     
     void processAudio(AudioBuffer &buffer)
     {
@@ -249,15 +267,15 @@ public:
         float*  outs[32];
         int     n = buffer.getChannels();
         
-        if ( (fDSP.getNumInputs() < 32) && (fDSP.getNumOutputs() < 32) ) {
+        if ( (fDSP->getNumInputs() < 32) && (fDSP->getNumOutputs() < 32) ) {
             
             // create the table of input channels
-            for(int ch=0; ch<fDSP.getNumInputs(); ++ch) {
+	  for(int ch=0; ch<fDSP->getNumInputs(); ++ch) {
                 ins[ch] = buffer.getSamples(ch%n);
             }
             
             // create the table of output channels
-            for(int ch=0; ch<fDSP.getNumOutputs(); ++ch) {
+	  for(int ch=0; ch<fDSP->getNumOutputs(); ++ch) {
                 outs[ch] = buffer.getSamples(ch%n);
             }
             
@@ -265,7 +283,7 @@ public:
             fUI.update(); 
             
             // Process the audio samples
-            fDSP.compute(buffer.getSize(), ins, outs);
+            fDSP->compute(buffer.getSize(), ins, outs);
         }
     }
 
