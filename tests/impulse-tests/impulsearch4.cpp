@@ -102,18 +102,19 @@ static inline FAUSTFLOAT normalize(FAUSTFLOAT f)
 // Standard memory manager
 struct malloc_memory_manager : public dsp_memory_manager {
     
-    void* allocate(size_t size)
+    virtual void* allocate(size_t size)
     {
         void* res = malloc(size);
-        //std::cout << "malloc_manager : " << size << " " << res << std::endl;
+        // cout << "malloc_manager: " << size << endl;
         return res;
     }
+    
     virtual void destroy(void* ptr)
     {
-        //std::cout << "free_manager : " << ptr << std::endl;
+        //cout << "free_manager" << endl;
         free(ptr);
     }
-    
+     
 };
 
 static void testPolyphony(dsp_factory* factory, bool is_mem_alloc = false)

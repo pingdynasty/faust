@@ -9,19 +9,17 @@
 #include <string>
 #include <map>
 #include <iostream>
+#include <sstream>
 #include <math.h>
 #include <algorithm>
 #include <cfenv>
 #include <cmath>
 #include <cfloat>
-
-#ifndef FAUSTFLOAT
-#define FAUSTFLOAT double
-#endif
+#include <vector>
 
 #include "faust/misc.h"
 #include "faust/gui/console.h"
-#include "faust/dsp/interpreter-dsp.h"
+#include "faust/dsp/dsp.h"
 #include "faust/gui/FUI.h"
 #include "faust/gui/DecoratorUI.h"
 #include "faust/audio/channels.h"
@@ -87,6 +85,12 @@ struct CheckControlUI : public GenericUI {
 //FAUST generated code
 //----------------------------------------------------------------------------
 
+<<includeIntrinsic>>
+
+<<includeclass>>
+
+mydsp* DSP;
+
 static inline FAUSTFLOAT normalize(FAUSTFLOAT f)
 {
     if (std::isnan(f)) {
@@ -99,16 +103,16 @@ static inline FAUSTFLOAT normalize(FAUSTFLOAT f)
     return (fabs(f) < FAUSTFLOAT(0.000001) ? FAUSTFLOAT(0.0) : f);
 }
 
-// Standard memory manager
+// Simple heap based custom memory manager
+
 struct malloc_memory_manager : public dsp_memory_manager {
     
-    virtual void* allocate(size_t size)
+    void* allocate(size_t size)
     {
         void* res = malloc(size);
-       // cout << "malloc_manager: " << size << endl;
+        //cout << "malloc_manager: " << size << endl;
         return res;
     }
-    
     virtual void destroy(void* ptr)
     {
         //cout << "free_manager" << endl;
@@ -117,15 +121,9 @@ struct malloc_memory_manager : public dsp_memory_manager {
     
 };
 
-static void testPolyphony(dsp_factory* factory, bool is_mem_alloc = false)
+static void testPolyphony(dsp* voice)
 {
-    malloc_memory_manager manager;
-    factory->setMemoryManager((is_mem_alloc) ? &manager : nullptr);
-    
-    mydsp_poly* DSP = new mydsp_poly(factory->createDSPInstance(), 4, true, false);
-    if (!DSP) {
-        exit(-1);
-    }
+    mydsp_poly* DSP = new mydsp_poly(voice, 4, true, false);
     
     // Get control and then 'initRandom'
     CheckControlUI controlui;
@@ -184,32 +182,32 @@ static void testPolyphony(dsp_factory* factory, bool is_mem_alloc = false)
     delete DSP;
 }
 
-static void runFactory(dsp_factory* factory, const string& file, bool is_mem_alloc = false, bool inpl = false)
+int main(int argc, char* argv[])
 {
     char rcfilename[256];
-    malloc_memory_manager manager;
-    factory->setMemoryManager((is_mem_alloc) ? &manager : nullptr);
-    
-    dsp* DSP = factory->createDSPInstance();
-    if (!DSP) {
-        exit(-1);
-    }
-    
     FUI finterface;
-    string filename = file;
-    filename = filename.substr(0, filename.find ('.'));
-    snprintf(rcfilename, 255, "%src", filename.c_str());
+    snprintf(rcfilename, 255, "%src", argv[0]);
     
-    CheckControlUI controlui;
+    bool inpl = isopt(argv, "-inpl");
+    
+    // Custom memory manager
+    malloc_memory_manager manager;
+    
+    // Setup manager for the class
+    mydsp::fManager = &manager;
+    
+    DSP = new (manager.allocate(sizeof(mydsp))) mydsp();
+    mydsp::classInit(44100);
     
     DSP->buildUserInterface(&finterface);
     
     // Get control and then 'initRandom'
+    CheckControlUI controlui;
     DSP->buildUserInterface(&controlui);
     controlui.initRandom();
     
-    // init signal processor and the user interface values:
-    DSP->init(44100);
+    // Init signal processor and the user interface values
+    DSP->instanceInit(44100);
     
     // Check getSampleRate
     if (DSP->getSampleRate() != 44100) {
@@ -236,14 +234,14 @@ static void runFactory(dsp_factory* factory, const string& file, bool is_mem_all
     }
     
     // Init again
-    DSP->init(44100);
+    DSP->instanceInit(44100);
     
     int nins = DSP->getNumInputs();
     int nouts = DSP->getNumOutputs();
     
     channels* ichan = new channels(kFrames, ((inpl) ? std::max(nins, nouts) : nins));
     channels* ochan = (inpl) ? ichan : new channels(kFrames, nouts);
-
+    
     int nbsamples = 60000;
     int linenum = 0;
     int run = 0;
@@ -271,7 +269,7 @@ static void runFactory(dsp_factory* factory, const string& file, bool is_mem_all
             int nFrames = min(kFrames, nbsamples);
             DSP->compute(nFrames, ichan->buffers(), ochan->buffers());
             run++;
-            for (i = 0; i < nFrames; i++) {
+            for (int i = 0; i < nFrames; i++) {
                 printf("%6d : ", linenum++);
                 for (int c = 0; c < nouts; c++) {
                     FAUSTFLOAT f = normalize(ochan->buffers()[c][i]);
@@ -282,79 +280,15 @@ static void runFactory(dsp_factory* factory, const string& file, bool is_mem_all
             nbsamples -= nFrames;
         }
     } catch (...) {
-        cerr << "ERROR in " << file << " line : " << i << std::endl;
+        cerr << "ERROR in " << argv[1] << " line : " << i << std::endl;
     }
     
-    delete DSP;
-}
-
-int main(int argc, char* argv[])
-{
-    string factory_str;
-    interpreter_dsp_factory* factory = NULL;
+    //testPolyphony(DSP);
     
-    bool inpl = isopt(argv, "-inpl");
+    DSP->~mydsp();
+    manager.destroy(DSP);
     
-    if (endsWith(argv[1], ".dsp")) {
-        
-        {
-            int argc1 = argc - 2;
-            const char* argv1[argc1];
-            for (int i = 0; i < argc - 2;  i++) {
-                argv1[i] = argv[i + 2];
-            }
-            
-            // Test factory generated from compilation
-            string error_msg;
-            factory = createInterpreterDSPFactoryFromFile(argv[1], argc1, argv1, error_msg);
-            if (!factory) {
-                cerr << "Error in createInterpreterDSPFactory " << error_msg  << endl;
-                exit(-1);
-            }
-            runFactory(factory, argv[1]);
-            runFactory(factory, argv[1], true);
-            runFactory(factory, argv[1], false, inpl);
-            
-            // Polyphony
-            testPolyphony(factory);
-            testPolyphony(factory, true);
-        }
-        
-        {
-            // Test writeInterpreterDSPFactoryToMachineFile/readInterpreterDSPFactoryFromMachineFile
-            writeInterpreterDSPFactoryToMachineFile(factory, "/var/tmp/interp-factory.fbc");
-            factory = readInterpreterDSPFactoryFromMachineFile("/var/tmp/interp-factory.fbc");
-            if (!factory) {
-                cerr << "Error in readInterpreterDSPFactoryFromMachineFile" << endl;
-                exit(-1);
-            }
-            runFactory(factory, argv[1]);
-            runFactory(factory, argv[1], true);
-        }
-        
-        {
-            // Test writeInterpreterDSPFactoryToMachine/readInterpreterDSPFactoryFromMachine
-            factory_str = writeInterpreterDSPFactoryToMachine(factory);
-            factory = readInterpreterDSPFactoryFromMachine(factory_str);
-            if (!factory) {
-                cerr << "Error in readInterpreterDSPFactoryFromMachine" << endl;
-                exit(-1);
-            }
-            runFactory(factory, argv[1]);
-            runFactory(factory, argv[1], true);
-        }
-     
-    } else {
-        
-        // Test factory generated from file
-        factory = readInterpreterDSPFactoryFromMachineFile(argv[1]);
-        if (!factory) {
-            cerr << "Error in readInterpreterDSPFactoryFromMachineFile" << endl;
-            exit(-1);
-        }
-        runFactory(factory, argv[1]);
-        runFactory(factory, argv[1], true);
-    }
-  
+    mydsp::classDestroy();
+    
     return 0;
 }

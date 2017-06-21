@@ -36,8 +36,11 @@ Interpreter :
  - 'fSamplingFreq' and 'count' variable manually added in the IntHeap to be setup in 'instanceInit' and 'compute'
  - multiple unneeded cast are eliminated in CastNumInst
  - 'faustpower' function directly inlined in the code (see CodeContainer::pushFunction)
+ - sub-containers code is 'inlined': fields declarations (using the global visitor) and code 'classInit', and 'instanceInit' of the main container
  - sub-containers code is 'inlined' : fields declarations (using the global visitor) and code 'classInit', and 'instanceInit' of the main container
-
+ - 'clone' method is implemented in the 'interpreter_dsp' wrapping code
+ 
+ TODO: in -mem mode, classInit and classDestroy will have to be called one at factory init and destroy time (after global memory allocation is implemented)
 */
 
 template <class T> map <string, FIRInstruction::Opcode> InterpreterInstVisitor<T>::gMathLibTable;
@@ -86,6 +89,9 @@ CodeContainer* InterpreterCodeContainer<T>::createContainer(const string& name, 
 {
     CodeContainer* container;
 
+    if (gGlobal->gMemoryManager) {
+        throw faustexception("ERROR : -mem not suported for Interpreter\n");
+    }
     if (gGlobal->gOpenCLSwitch) {
         throw faustexception("ERROR : OpenCL not supported for Interpreter\n");
     }

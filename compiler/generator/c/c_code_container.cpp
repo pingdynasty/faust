@@ -46,7 +46,10 @@ CodeContainer* CCodeContainer::createContainer(const string& name, int numInputs
 {
     gGlobal->gDSPStruct = true;
     CodeContainer* container;
-
+    
+    if (gGlobal->gMemoryManager) {
+        throw faustexception("ERROR : -mem not suported for C\n");
+    }
     if (gGlobal->gOpenCLSwitch) {
         throw faustexception("ERROR : OpenCL not supported for C\n");
     }
@@ -275,8 +278,8 @@ void CCodeContainer::produceClass()
 
     tab(n, *fOut);
     tab(n, *fOut); *fOut << "void init" << fKlassName << "(" << fKlassName << "* dsp, int samplingFreq) {";
-    tab(n+1, *fOut); *fOut << "classInit" << fKlassName << "(samplingFreq);";
-    tab(n+1, *fOut); *fOut << "instanceInit" << fKlassName << "(dsp, samplingFreq);";
+        tab(n+1, *fOut); *fOut << "classInit" << fKlassName << "(samplingFreq);";
+        tab(n+1, *fOut); *fOut << "instanceInit" << fKlassName << "(dsp, samplingFreq);";
     tab(n, *fOut); *fOut << "}";
     
     // User interface
